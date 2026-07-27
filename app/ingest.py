@@ -24,7 +24,7 @@ def insert_states(data):
     print(f"Aircraft found: {len(states)}")
 
     insert_query = text("""
-        INSERT INTO raw_opensky_states (
+        INSERT INTO raw.state_vectors (
             snapshot_id,
             api_time,
             icao24,
