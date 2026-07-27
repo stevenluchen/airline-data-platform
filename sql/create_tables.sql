@@ -1,6 +1,6 @@
 -- sql/create_tables.sql
-
-CREATE TABLE IF NOT EXISTS raw_opensky_states (
+-- raw OpenSky state vectors
+CREATE TABLE IF NOT EXISTS raw.state_vectors (
 
     id BIGSERIAL PRIMARY KEY,
     api_time BIGINT,
@@ -25,3 +25,41 @@ CREATE TABLE IF NOT EXISTS raw_opensky_states (
     ingested_at TIMESTAMP DEFAULT NOW(),
     snapshot_id UUID
 );
+
+-- deduped aircraft dimension table
+CREATE OR REPLACE TABLE analytics.dim_aircraft (
+    icao24 VARCHAR(6) PRIMARY KEY,
+    registration_number VARCHAR(20),
+    "type" VARCHAR(4),
+    "desc" VARCHAR(150),
+
+    operator VARCHAR(150),
+    year VARCHAR(4),
+    aircraft_category VARCHAR(2),
+
+    last_updated TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- populate aircraft dimension table
+INSERT INTO analytics.dim_aircraft
+SELECT
+    icao24,
+    registration_number,
+    "type",
+    "desc",
+    "ownOp" as operator,
+    "year",
+    aircraft_category,
+    time::TIMESTAMP AS last_updated
+FROM (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY icao24
+            ORDER BY time DESC
+        ) as rn
+    FROM raw.airframes_history
+    WHERE length(icao24) = 6
+) t
+WHERE rn = 1;
