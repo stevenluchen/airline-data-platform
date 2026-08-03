@@ -29,6 +29,8 @@ Finalize plans for how to handle general aviation and non-commercial callsigns.
 
 Read about incremental loading, data quality checks, and tests. What are the softwares/tools needed for these?
 
+Update data dictionary placeholder values
+
 ## Notes/obstacles
 
 7/25: Raw airframes data ingests slowly, adding chunking logic helps. Consider using Postgres bulk loader rather than `pandas.to_sql()`.
