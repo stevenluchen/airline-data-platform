@@ -3,30 +3,26 @@ from sqlalchemy import create_engine
 
 from db import get_engine
 
-url = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
+path = "data/airlines_ref.csv"
 
 cols = [
-    "airline_id",
-    "name",
-    "alias",
-    "iata",
     "icao",
-    "callsign",
-    "country",
-    "active"
+    "iata",
+    "name",
+    "icao_callsign"
 ]
 
 df = pd.read_csv(
-    url,
+    path,
     names=cols,
     na_values="\\N"
 )
 
 engine = get_engine()
 df.to_sql(
-    "dim_airlines",
+    "airlines_ref",
     engine,
-    schema="analytics",
+    schema="raw",
     if_exists="replace",
     index=False
 )
