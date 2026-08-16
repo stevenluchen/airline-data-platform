@@ -13,6 +13,7 @@ This document summarizes the main tables in the project schema, including their 
 | analytics.dim_aircraft_types | analytics | Aircraft type reference dimension | OpenFlights planes data |
 | analytics.dim_airlines | analytics | Airline reference dimension | avcodes.co.uk + staging transformation |
 | staging.stg_dim_airlines | staging | Staging copy of airline reference data with cleaning/transformation applied | avcodes.co.uk |
+| analytics.fact_aircraft_positions | analytics | Enriched aircraft observation fact table | raw.state_vectors + airline + aircraft dimensions |
 
 ## 1. raw.state_vectors
 
@@ -189,7 +190,38 @@ One row per airline reference record.
 
 ---
 
-## 8. staging logic note
+## 8. analytics.fact_aircraft_positions
+
+### Purpose
+A denormalized fact table that enriches each raw OpenSky position observation with aircraft and airline metadata for analytics and dashboard use.
+
+### Grain
+One row per aircraft observation at a given snapshot time.
+
+### Primary / Unique Keys
+- Primary key: aircraft_position_id (surrogate key)
+- Recommended natural key: snapshot_id + icao24 + api_time
+- Unique index: recommended on (snapshot_id, icao24, api_time)
+
+### Source
+- Source systems: raw.state_vectors, analytics.dim_aircraft, analytics.dim_airlines
+- Transformation logic: joins the raw state vectors to airline and aircraft dimension tables and retains the enriched payload for downstream analysis
+
+### Key columns
+- aircraft_position_id: surrogate key for the fact row
+- snapshot_id: OpenSky snapshot identifier
+- api_time / observed_at: observation timestamp
+- icao24: aircraft identifier
+- callsign, origin_country: flight and origin metadata
+- airline_icao, airline_iata, airline_name, airline_country: airline enrichment fields
+- aircraft_registration_number, aircraft_type, aircraft_type_description, aircraft_category, aircraft_registered_year: aircraft enrichment fields
+- longitude, latitude, baro_altitude, geo_altitude, on_ground, velocity, true_track, vertical_rate: flight-state metrics
+- squawk, spi, position_source, category: operational metadata
+- ingested_at: row load timestamp
+
+---
+
+## 9. staging logic note
 
 ### stg_dim_aircraft
 This SQL script is not a physical table definition; it is a transformation step that loads the analytics.dim_aircraft dimension from raw.airframes_history.
@@ -198,3 +230,6 @@ This SQL script is not a physical table definition; it is a transformation step 
 - Grain: one row per latest record for each icao24
 - Primary key: inherited from analytics.dim_aircraft (icao24)
 - Source: raw.airframes_history
+
+### fact_aircraft_positions
+This table is a materialized analytics fact table intended to be refreshed after the base ingest jobs run. It is designed to support dashboards, operational queries, and enriched flight-state analysis.

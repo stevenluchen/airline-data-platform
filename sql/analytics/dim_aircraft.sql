@@ -1,4 +1,3 @@
--- sql/populate_dim_aircraft.sql
 CREATE table if not exists analytics.dim_aircraft AS
 SELECT
     icao24,

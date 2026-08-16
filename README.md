@@ -11,19 +11,26 @@ docker compose up -d
 ## Current Tables
 
 raw.state_vectors
+
 raw.airframe_history
 
+raw.airlines_ref
+
+staging.stg_dim_airlines
+
 analytics.dim_aircraft
+
 analytics.dim_aircraft_types
+
 analytics.dim_airlines
+
+analytics.fact_aircraft_positions
 
 ## Next steps
 
 Set up recurring job on `ingest.py`
 
 Set up recurring updates on `dim_aircraft` table, pulling from [OpenAirframes](https://github.com/PlaneQuery/OpenAirframes)
-
-Define analytics-ready enriched aircraft positions fact table. 
 
 Finalize plans for how to handle general aviation and non-commercial callsigns.
 
