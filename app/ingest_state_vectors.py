@@ -1,11 +1,13 @@
 import requests
 import uuid
+import logging
 from datetime import datetime, timezone
 from sqlalchemy import text
-
 from db import get_engine
+from transform_state_vectors import transform_snapshot
 
 OPEN_SKY_URL = "https://opensky-network.org/api/states/all"
+logger = logging.getLogger(__name__)
 
 def fetch_states():
     response = requests.get(
@@ -15,13 +17,17 @@ def fetch_states():
     response.raise_for_status()
     return response.json()
 
-def insert_states(data):
-    engine = get_engine()
+def insert_states(data, engine):
     snapshot_id = str(uuid.uuid4())
     api_time = data["time"]
     states = data["states"]
-    print(f"Snapshot: {snapshot_id}")
-    print(f"Aircraft found: {len(states)}")
+    ingested_at = datetime.now(timezone.utc)
+
+    logger.info(
+        "Inserting snapshot %s with %d aircraft",
+        snapshot_id,
+        len(states)
+    )
 
     insert_query = text("""
         INSERT INTO raw.state_vectors (
@@ -69,7 +75,6 @@ def insert_states(data):
     """)
 
     rows = []
-
     for state in states:
         rows.append({
             "snapshot_id": snapshot_id,
@@ -98,17 +103,36 @@ def insert_states(data):
             "spi": state[15],
             "position_source": state[16],
 
-            "ingested_at": datetime.now(timezone.utc)
+            "ingested_at": ingested_at
         })
 
-    with engine.begin() as conn:
-        conn.execute(insert_query, rows)
+    if rows:
+        with engine.begin() as conn:
+            conn.execute(insert_query, rows)
+
+    return {
+        "snapshot_id": snapshot_id,
+        "api_time": api_time,
+        "aircraft_count": len(states),
+        "ingested_at": ingested_at
+    }
 
 def main():
-    print("Fetching OpenSky data...")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
+    logger.info("Starting OpenSky state vector ingestion...")
+    engine = get_engine()
     data = fetch_states()
-    insert_states(data)
-    print("Done!")
+    result = insert_states(data, engine)
+    logger.info(
+        "Ingestion complete: snapshot %s, aircraft=%d",
+        result["snapshot_id"],
+        result["aircraft_count"]
+    )
+    transform_snapshot(engine, result["snapshot_id"])
+    logger.info("Pipeline complete.")
 
 if __name__ == "__main__":
     main()

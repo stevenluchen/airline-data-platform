@@ -101,4 +101,5 @@ LEFT JOIN analytics.dim_airlines al
     ON UPPER(LEFT(sv.callsign, 3)) = UPPER(al.icao)
 LEFT JOIN analytics.dim_aircraft ac
     ON sv.icao24 = ac.icao24
+WHERE sv.snapshot_id = :snapshot_id
 ON CONFLICT (snapshot_id, icao24, api_time) DO NOTHING;
