@@ -18,5 +18,18 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  ingestion:
+    build: .
+    container_name: airline-ingestion
+
+    env_file:
+      - .env
+    
+    environment:
+      POSTGRES_HOST: postgres
+
+    depends_on:
+      - postgres
+
 volumes:
   postgres_data:
