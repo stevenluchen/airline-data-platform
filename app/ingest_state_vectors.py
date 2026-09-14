@@ -21,7 +21,7 @@ def insert_states(data, engine):
     snapshot_id = str(uuid.uuid4())
     api_time = data["time"]
     states = data["states"]
-    ingested_at = datetime.now(timezone.utc)
+    ingested_at = datetime.now(timezone.utc).replace(second=0, microsecond=0)
 
     logger.info(
         "Inserting snapshot %s with %d aircraft",
