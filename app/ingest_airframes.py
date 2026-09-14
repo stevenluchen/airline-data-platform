@@ -27,9 +27,9 @@ engine = get_engine()
 
 for chunk in tqdm(chunks):
     chunk.to_sql(
-        "aircraft_reference",
+        "airframes_history",
         engine,
-        schema="public",
+        schema="raw",
         if_exists="append",
         index=False,
         method="multi"
