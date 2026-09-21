@@ -39,7 +39,7 @@ TRANSFORM_QUERY = text("""
         sv.api_time,
         TO_TIMESTAMP(sv.api_time) AS observed_at,
         sv.icao24,
-        sv.callsign,
+        nullif(sv.callsign, ''),
         sv.origin_country,
         al.icao AS airline_icao,
         al.iata AS airline_iata,
