@@ -1,4 +1,8 @@
-CREATE table if not exists analytics.dim_aircraft AS
+-- sql/analytics/dim_aircraft.sql
+-- Rerunnable: drops and rebuilds from raw history each run.
+DROP TABLE IF EXISTS analytics.dim_aircraft;
+
+CREATE TABLE analytics.dim_aircraft AS
 SELECT
     icao24,
     registration_number,

@@ -1,6 +1,10 @@
--- sql/staging/fact_aircraft_positions.sql
--- Create the enriched aircraft positions fact table and populate it
--- from the raw OpenSky state vectors joined to airline and aircraft dims.
+-- sql/analytics/fact_aircraft_positions.sql
+-- DDL for the enriched aircraft positions fact table.
+--
+-- The per-snapshot INSERT...SELECT that loads this table is the single
+-- source of truth in app/transform_state_vectors.py (TRANSFORM_QUERY).
+-- Keep the load logic there only; duplicating it here caused the two
+-- copies to drift.
 
 CREATE TABLE IF NOT EXISTS analytics.fact_aircraft_positions (
     aircraft_position_id BIGSERIAL PRIMARY KEY,
@@ -36,70 +40,3 @@ CREATE TABLE IF NOT EXISTS analytics.fact_aircraft_positions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fact_aircraft_positions
 ON analytics.fact_aircraft_positions (snapshot_id, icao24, api_time);
-
-INSERT INTO analytics.fact_aircraft_positions (
-    snapshot_id,
-    api_time,
-    observed_at,
-    icao24,
-    callsign,
-    origin_country,
-    airline_icao,
-    airline_iata,
-    airline_name,
-    airline_country,
-    aircraft_registration_number,
-    aircraft_type,
-    aircraft_type_description,
-    aircraft_category,
-    aircraft_registered_year,
-    longitude,
-    latitude,
-    baro_altitude,
-    geo_altitude,
-    on_ground,
-    velocity,
-    true_track,
-    vertical_rate,
-    squawk,
-    spi,
-    position_source,
-    category,
-    ingested_at
-)
-SELECT
-    sv.snapshot_id,
-    sv.api_time,
-    TO_TIMESTAMP(sv.api_time) AS observed_at,
-    sv.icao24,
-    nullif(upper(trim(sv.callsign)), '') AS callsign,
-    sv.origin_country,
-    al.icao AS airline_icao,
-    al.iata AS airline_iata,
-    al.airline_name,
-    al.airline_country,
-    ac.registration_number AS aircraft_registration_number,
-    ac."type" AS aircraft_type,
-    ac."desc" AS aircraft_type_description,
-    ac.aircraft_category,
-    ac.year AS aircraft_registered_year,
-    sv.longitude,
-    sv.latitude,
-    sv.baro_altitude,
-    sv.geo_altitude,
-    sv.on_ground,
-    sv.velocity,
-    sv.true_track,
-    sv.vertical_rate,
-    sv.squawk,
-    sv.spi,
-    sv.position_source,
-    sv.category,
-    sv.ingested_at
-FROM raw.state_vectors sv
-LEFT JOIN analytics.dim_airlines al
-    ON UPPER(LEFT(sv.callsign, 3)) = UPPER(al.icao)
-LEFT JOIN analytics.dim_aircraft ac
-    ON sv.icao24 = ac.icao24
-WHERE sv.snapshot_id = :snapshot_id
-ON CONFLICT (snapshot_id, icao24, api_time) DO NOTHING;

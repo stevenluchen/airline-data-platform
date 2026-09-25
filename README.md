@@ -6,7 +6,34 @@ OpenSky API → Python ingestion → PostgreSQL raw layer
 
 docker compose up -d
 
-`python app/ingest.py` to pull latest OpenSky state vectors
+`python app/ingest_state_vectors.py` to pull the latest OpenSky state vectors
+and load them into `analytics.fact_aircraft_positions`.
+
+Recurring ingestion runs on a 10-minute schedule via the Airflow DAG in
+`airflow/dags/airline_data_ingest.py` (see `docker-compose.yml` for the
+Airflow webserver/scheduler services).
+
+### OpenSky authentication
+
+OpenSky retired anonymous and basic-auth access; the API now requires OAuth2
+client credentials. Create an API client at
+[opensky-network.org](https://opensky-network.org) (Account page) and add the
+credentials to your `.env`:
+
+```
+OPENSKY_CLIENT_ID=...
+OPENSKY_CLIENT_SECRET=...
+```
+
+Without them, ingestion falls back to anonymous access (400 credits/day),
+which the 10-minute cadence will exhaust and rate-limit.
+
+Airflow runs its own metadata database (separate from the pipeline
+database), configured with:
+
+```
+AIRFLOW_DB_PASSWORD=...
+```
 
 ## Current Tables
 
@@ -56,8 +83,6 @@ Reprocessing the same snapshot produces no duplicates due to the `ON CONFLICT` c
 
 ## Next steps
 
-Set up recurring job on `ingest.py`
-
 Set up recurring updates on `dim_aircraft` table, pulling from [OpenAirframes](https://github.com/PlaneQuery/OpenAirframes)
 
 Finalize plans for how to handle general aviation and non-commercial callsigns.
@@ -65,6 +90,8 @@ Finalize plans for how to handle general aviation and non-commercial callsigns.
 Read about incremental loading, data quality checks, and tests. What are the softwares/tools needed for these?
 
 Update data dictionary placeholder values
+
+Partition `fact_aircraft_positions` / set a retention policy on `raw.state_vectors` before volume becomes a problem (~1.4M fact rows/day at the current cadence)
 
 ## Notes/obstacles
 

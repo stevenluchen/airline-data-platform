@@ -1,21 +1,81 @@
-import requests
-import uuid
+import json
 import logging
+import os
+import time
+import uuid
 from datetime import datetime, timezone
+
+import requests
 from sqlalchemy import text
+
 from db import get_engine
 from transform_state_vectors import transform_snapshot
 
 OPEN_SKY_URL = "https://opensky-network.org/api/states/all"
+TOKEN_URL = (
+    "https://auth.opensky-network.org/auth/realms/opensky-network/protocol"
+    "/openid-connect/token"
+)
 logger = logging.getLogger(__name__)
 
-def fetch_states():
-    response = requests.get(
-        OPEN_SKY_URL,
-        timeout=30
+# Cached bearer token, refreshed proactively before expiry
+_token_cache = {"token": None, "expires_at": 0.0}
+
+
+def _get_access_token():
+    """Fetch an OAuth2 access token via client credentials flow.
+
+    Returns None when OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET are not set,
+    in which case requests fall back to anonymous access (tight rate limits).
+    """
+    client_id = os.getenv("OPENSKY_CLIENT_ID")
+    client_secret = os.getenv("OPENSKY_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return None
+
+    now = time.time()
+    if _token_cache["token"] and now < _token_cache["expires_at"] - 60:
+        return _token_cache["token"]
+
+    response = requests.post(
+        TOKEN_URL,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        timeout=15,
     )
     response.raise_for_status()
+    payload = response.json()
+
+    _token_cache["token"] = payload["access_token"]
+    _token_cache["expires_at"] = now + payload.get("expires_in", 1800)
+    logger.info("Fetched new OpenSky access token")
+    return _token_cache["token"]
+
+
+def fetch_states():
+    headers = {}
+    token = _get_access_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    else:
+        logger.warning(
+            "OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET not set; using anonymous "
+            "access (400 credits/day -- the 10-minute cadence will be rate limited)"
+        )
+
+    response = requests.get(OPEN_SKY_URL, headers=headers, timeout=30)
+    if response.status_code == 401 and token:
+        # Token may have expired between the cache check and the request;
+        # refresh once and retry.
+        _token_cache["token"] = None
+        headers["Authorization"] = f"Bearer {_get_access_token()}"
+        response = requests.get(OPEN_SKY_URL, headers=headers, timeout=30)
+    response.raise_for_status()
     return response.json()
+
 
 def insert_states(data, engine):
     snapshot_id = str(uuid.uuid4())
@@ -45,10 +105,12 @@ def insert_states(data, engine):
             velocity,
             true_track,
             vertical_rate,
+            sensors,
             geo_altitude,
             squawk,
             spi,
             position_source,
+            category,
             ingested_at
         )
         VALUES (
@@ -66,10 +128,12 @@ def insert_states(data, engine):
             :velocity,
             :true_track,
             :vertical_rate,
+            :sensors,
             :geo_altitude,
             :squawk,
             :spi,
             :position_source,
+            :category,
             :ingested_at
         )
     """)
@@ -97,11 +161,14 @@ def insert_states(data, engine):
             "true_track": state[10],
             "vertical_rate": state[11],
 
+            "sensors": json.dumps(state[12]) if state[12] is not None else None,
+
             "geo_altitude": state[13],
 
             "squawk": state[14],
             "spi": state[15],
             "position_source": state[16],
+            "category": state[17],
 
             "ingested_at": ingested_at
         })
@@ -116,6 +183,7 @@ def insert_states(data, engine):
         "aircraft_count": len(states),
         "ingested_at": ingested_at
     }
+
 
 def main():
     logging.basicConfig(
@@ -133,6 +201,7 @@ def main():
     )
     transform_snapshot(engine, result["snapshot_id"])
     logger.info("Pipeline complete.")
+
 
 if __name__ == "__main__":
     main()

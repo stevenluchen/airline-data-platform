@@ -1,4 +1,9 @@
-CREATE TABLE IF NOT EXISTS staging.stg_dim_airlines AS
+-- sql/staging/stg_dim_airlines.sql
+-- Rebuilds the staging copy of the airline reference data with basic
+-- cleaning applied. Rerunnable: drops and rebuilds the table each run.
+DROP TABLE IF EXISTS staging.stg_dim_airlines;
+
+CREATE TABLE staging.stg_dim_airlines AS
 SELECT
     *
 FROM raw.airlines_ref;

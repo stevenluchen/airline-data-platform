@@ -1,9 +1,10 @@
 import pandas as pd
+from pathlib import Path
 from sqlalchemy import create_engine
 
 from db import get_engine
 
-path = "data/airlines_ref.csv"
+path = Path(__file__).resolve().parent / "data" / "airlines_ref.csv"
 
 cols = [
     "icao",
