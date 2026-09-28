@@ -1,104 +1,148 @@
-## Current Architecture
+# Airline Data Platform
 
-OpenSky API → Python ingestion → PostgreSQL raw layer
+A batch data pipeline that ingests live aircraft position data from the [OpenSky Network API](https://opensky-network.org), enriches it with aircraft and airline reference data, and serves it as analytics-ready tables in PostgreSQL. Orchestrated with Airflow on a 10-minute cadence.
 
-## Running locally
-
-docker compose up -d
-
-`python app/ingest_state_vectors.py` to pull the latest OpenSky state vectors
-and load them into `analytics.fact_aircraft_positions`.
-
-Recurring ingestion runs on a 10-minute schedule via the Airflow DAG in
-`airflow/dags/airline_data_ingest.py` (see `docker-compose.yml` for the
-Airflow webserver/scheduler services).
-
-### OpenSky authentication
-
-OpenSky retired anonymous and basic-auth access; the API now requires OAuth2
-client credentials. Create an API client at
-[opensky-network.org](https://opensky-network.org) (Account page) and add the
-credentials to your `.env`:
+## Architecture
 
 ```
+OpenSky API ──► Python ingestion ──► raw ──► staging ──► analytics
+  (OAuth2)        (Airflow, 10m)      ▲         ▲            ▲
+                                      │         │            │
+OpenAirframes ──► bulk load ──────────┘         │            │
+avcodes.co.uk ──► CSV ingest ──────────────────┘            │
+mwgg/Airports ──► JSON ingest ──────────────────────────────┘
+```
+
+**Layer conventions (medallion):**
+
+| Schema | Purpose |
+|---|---|
+| `raw` | Unmodified source data, one table per source. Never mutated by transforms. |
+| `staging` | Lightly cleaned copies of raw reference data (trimming, parsing, type fixes). Rebuilt from scratch each run. |
+| `analytics` | Enriched fact and dimension tables for downstream queries and dashboards. |
+
+## Pipeline flow
+
+Each scheduled run of the `airline_data_ingest` DAG:
+
+1. **Fetch** — pulls the latest state vectors from OpenSky (`/states/all`) using OAuth2 client credentials.
+2. **Ingest** — stamps the batch with a `snapshot_id` and inserts rows into `raw.state_vectors`.
+3. **Transform** — `transform_snapshot(snapshot_id)` joins that snapshot to `dim_airlines` (via the ICAO callsign prefix) and `dim_aircraft` (via `icao24`), then upserts into `analytics.fact_aircraft_positions`.
+
+Design notes:
+
+- Raw ingestion and transformation are separate steps: if the transform fails, the raw snapshot is preserved and can be reprocessed.
+- Reprocessing a snapshot is idempotent — `ON CONFLICT (snapshot_id, icao24, api_time) DO NOTHING` guarantees no duplicates.
+- All writes run inside transactions (`engine.begin()`).
+
+## Prerequisites
+
+- Docker + Docker Compose
+- An [OpenSky Network](https://opensky-network.org) account with an API client created (Account page → API Client). Anonymous access is limited to 400 credits/day, which the 10-minute cadence will exhaust.
+
+## Quickstart
+
+1. Create a `.env` file in the repo root:
+
+```env
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=airline
+POSTGRES_USER=airline
+POSTGRES_PASSWORD=...
+
 OPENSKY_CLIENT_ID=...
 OPENSKY_CLIENT_SECRET=...
-```
 
-Without them, ingestion falls back to anonymous access (400 credits/day),
-which the 10-minute cadence will exhaust and rate-limit.
-
-Airflow runs its own metadata database (separate from the pipeline
-database), configured with:
-
-```
 AIRFLOW_DB_PASSWORD=...
+AIRFLOW_API_JWT_SECRET=...
+AIRFLOW_SECRET_KEY=...
 ```
 
-## Current Tables
+2. Start everything:
 
-raw.state_vectors
+```bash
+docker compose up -d
+```
 
-raw.airframe_history
+This brings up the pipeline Postgres, a dedicated Postgres for Airflow metadata, and the Airflow webserver / scheduler / DAG processor. The Airflow UI is at `http://localhost:8080`.
 
-raw.airlines_ref
+3. Run a one-off ingestion manually:
 
-staging.stg_dim_airlines
+```bash
+python app/ingest_state_vectors.py
+```
 
-analytics.dim_aircraft
+This fetches the latest state vectors, loads `raw.state_vectors`, and runs the transform for that snapshot.
 
-analytics.dim_aircraft_types
+## Project structure
 
-analytics.dim_airlines
+```
+├── airflow/
+│   ├── Dockerfile                  # Airflow image (app/ on PYTHONPATH)
+│   └── dags/
+│       └── airline_data_ingest.py  # 10-minute ingest + transform DAG
+├── app/
+│   ├── ingest_state_vectors.py     # OpenSky fetch + raw load (OAuth2, snapshot-scoped)
+│   ├── transform_state_vectors.py  # Snapshot transform → fact table (single source of truth for the load query)
+│   ├── ingest_airframes.py         # Bulk load of OpenAirframes historical metadata
+│   ├── ingest_airlines.py          # Airline reference data (avcodes.co.uk CSV)
+│   ├── ingest_aircraft_types.py    # Aircraft type reference (OpenFlights)
+│   ├── ingest_airports.py          # Airport reference data (idempotent upsert)
+│   ├── db.py                       # SQLAlchemy engine from env vars
+│   └── data/
+│       └── airlines_ref.csv
+├── sql/
+│   ├── raw/                        # DDL for raw tables
+│   ├── staging/                    # Rebuild scripts for staging tables
+│   └── analytics/                  # DDL for dims, fact table, and the cleaned-positions view
+├── data_dictionary.md              # Table grains, keys, and column definitions
+├── docker-compose.yml
+└── Dockerfile                      # Standalone ingestion image
+```
 
-analytics.fact_aircraft_positions
+## Data model
 
-## Ingestion automation and validation
+Core tables (see `data_dictionary.md` for the full reference):
 
-Each run of `ingest_state_vectors.py`:
+- **`raw.state_vectors`** — one row per aircraft observation per API snapshot. Grain: `snapshot_id + icao24 + api_time`.
+- **`analytics.fact_aircraft_positions`** — the same observations enriched with airline and aircraft metadata. This is the table to query.
+- **`analytics.dim_aircraft`** — one row per `icao24`, latest known metadata from OpenAirframes history.
+- **`analytics.dim_airlines`** — cleaned airline reference (excludes blocked/redacted entries).
+- **`analytics.dim_aircraft_types`**, **`analytics.dim_airports`** — reference dimensions.
+- **`analytics.vw_aircraft_positions_cleaned`** — view over the fact table that imputes missing callsigns when an aircraft's callsign drops out mid-sequence but the surrounding observations agree (labels each row as `observed`, `bounded_imputation`, or `unavailable`).
 
-1. Pulls OpenSky state vectors
+## Reference data refresh
 
-2. Creates a `snapshot_id`
+Reference tables are ingested on demand, not on the DAG schedule:
 
-3. Stores raw data in `raw.state_vectors`
+```bash
+python app/ingest_airframes.py   # OpenAirframes historical dump (large, chunked load)
+python app/ingest_airlines.py    # Airline codes
+python app/ingest_aircraft_types.py
+python app/ingest_airports.py
+```
 
-4. Transforms only that snapshot
+Then rebuild the derived tables in dependency order:
 
-5. Enriches with dimension tables
+```bash
+psql $DATABASE_URL -f sql/staging/stg_dim_airlines.sql
+psql $DATABASE_URL -f sql/analytics/dim_airlines.sql
+psql $DATABASE_URL -f sql/analytics/dim_aircraft.sql
+```
 
-6. Loads into `analytics.fact_aircraft_positions`
+The staging/analytics rebuild scripts are rerunnable (drop + rebuild).
 
-### Notes
+## Roadmap
 
-* Centralized logging using `logging` module
+- Migrate the SQL layer to dbt (models, tests, docs) — the staging/analytics scripts are already shaped like models.
+- Add data quality checks: null-rate assertions, per-snapshot row-count anomaly detection.
+- Partition `fact_aircraft_positions` and set a retention policy on `raw.state_vectors` (current cadence ≈ 1.4M fact rows/day).
+- CI: lint SQL, validate the DAG imports, verify compose config on every push.
+- Decide on handling for general-aviation and non-commercial callsigns (currently only ICAO airline prefixes resolve to `dim_airlines`).
+- Alerting on DAG/task failure.
 
-* Separation of raw ingestion and transformation: `raw.state_vectors` -> `transform_snapshot(snapshot_id)` -> `analytics.fact_aircraft_positions`. Successful ingestion will not disappear if downstream transformation fails. 
+## Notes
 
-* Calling `engine.begin()` ensures transaction-safe execution
-
-### Idempotency
-
-Reprocessing the same snapshot produces no duplicates due to the `ON CONFLICT` clause in the query. `(snapshot_id, icao24, api_time)` servics as composite uniqueness constraint. 
-
-## Next steps
-
-Set up recurring updates on `dim_aircraft` table, pulling from [OpenAirframes](https://github.com/PlaneQuery/OpenAirframes)
-
-Finalize plans for how to handle general aviation and non-commercial callsigns.
-
-Read about incremental loading, data quality checks, and tests. What are the softwares/tools needed for these?
-
-Update data dictionary placeholder values
-
-Partition `fact_aircraft_positions` / set a retention policy on `raw.state_vectors` before volume becomes a problem (~1.4M fact rows/day at the current cadence)
-
-## Notes/obstacles
-
-7/25: Raw airframes data ingests slowly, adding chunking logic helps. Consider using Postgres bulk loader rather than `pandas.to_sql()`.
-
-7/26: Deduped raw airframes data and removed entries for ambiguous aircraft or those with zero metadata, significantly reducing cardinality. Set up raw/staging/analytics schemas for future changes.
-
-8/3: Changed airlines reference table source as previous one was out of date and incomplete. Created data dictionary, organized SQL table definitions and Postgres schema. 
-
-8/16: Finalized ETL layer and preparing for automation
+- OpenSky rate limits are credit-based: a global `/states/all` call costs 4 credits. Authenticated accounts get 4,000 credits/day.
+- Attribution: flight data by [The OpenSky Network](https://opensky-network.org).

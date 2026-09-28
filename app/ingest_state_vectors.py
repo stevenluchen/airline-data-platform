@@ -18,16 +18,9 @@ TOKEN_URL = (
 )
 logger = logging.getLogger(__name__)
 
-# Cached bearer token, refreshed proactively before expiry
 _token_cache = {"token": None, "expires_at": 0.0}
 
-
 def _get_access_token():
-    """Fetch an OAuth2 access token via client credentials flow.
-
-    Returns None when OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET are not set,
-    in which case requests fall back to anonymous access (tight rate limits).
-    """
     client_id = os.getenv("OPENSKY_CLIENT_ID")
     client_secret = os.getenv("OPENSKY_CLIENT_SECRET")
     if not client_id or not client_secret:
@@ -105,12 +98,10 @@ def insert_states(data, engine):
             velocity,
             true_track,
             vertical_rate,
-            sensors,
             geo_altitude,
             squawk,
             spi,
             position_source,
-            category,
             ingested_at
         )
         VALUES (
@@ -128,12 +119,10 @@ def insert_states(data, engine):
             :velocity,
             :true_track,
             :vertical_rate,
-            :sensors,
             :geo_altitude,
             :squawk,
             :spi,
             :position_source,
-            :category,
             :ingested_at
         )
     """)
@@ -161,14 +150,11 @@ def insert_states(data, engine):
             "true_track": state[10],
             "vertical_rate": state[11],
 
-            "sensors": json.dumps(state[12]) if state[12] is not None else None,
-
             "geo_altitude": state[13],
 
             "squawk": state[14],
             "spi": state[15],
             "position_source": state[16],
-            "category": state[17],
 
             "ingested_at": ingested_at
         })

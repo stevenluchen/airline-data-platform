@@ -1,32 +1,5 @@
 CREATE OR REPLACE VIEW analytics.vw_aircraft_positions_cleaned AS
 WITH 
--- normalized AS (
---     SELECT
---         id,
---         api_time,
---         icao24,
---         NULLIF(TRIM(callsign), '') AS callsign,
---         origin_country,
---         time_position,
---         last_contact,
---         latitude,
---         longitude,
---         baro_altitude,
---         on_ground,
---         velocity,
---         true_track,
---         vertical_rate,
---         sensors,
---         geo_altitude,
---         squawk,
---         spi,
---         position_source,
---         category,
---         ingested_at,
---         snapshot_id
---     FROM analytics.fact_aircraft_positions
--- ),
-
 ordered AS (
     SELECT
         *,

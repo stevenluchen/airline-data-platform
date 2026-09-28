@@ -18,10 +18,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # Dedicated database for Airflow's own metadata (DAG runs, task state,
-  # etc.). Kept separate from the pipeline database so Airflow upgrades,
-  # migrations, or resets can never touch flight data -- and so
-  # `docker compose up` works on a fresh machine without manual DB setup.
   airflow-postgres:
     image: postgres:16
     container_name: airline-airflow-postgres

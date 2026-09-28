@@ -1,10 +1,5 @@
 -- sql/analytics/fact_aircraft_positions.sql
 -- DDL for the enriched aircraft positions fact table.
---
--- The per-snapshot INSERT...SELECT that loads this table is the single
--- source of truth in app/transform_state_vectors.py (TRANSFORM_QUERY).
--- Keep the load logic there only; duplicating it here caused the two
--- copies to drift.
 
 CREATE TABLE IF NOT EXISTS analytics.fact_aircraft_positions (
     aircraft_position_id BIGSERIAL PRIMARY KEY,
