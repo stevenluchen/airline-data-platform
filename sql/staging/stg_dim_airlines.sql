@@ -1,4 +1,7 @@
-CREATE TABLE IF NOT EXISTS staging.stg_dim_airlines AS
+-- sql/staging/stg_dim_airlines.sql
+DROP TABLE IF EXISTS staging.stg_dim_airlines;
+
+CREATE TABLE staging.stg_dim_airlines AS
 SELECT
     *
 FROM raw.airlines_ref;

@@ -1,4 +1,7 @@
-CREATE TABLE IF NOT EXISTS analytics.dim_airlines AS
+-- sql/analytics/dim_airlines.sql
+DROP TABLE IF EXISTS analytics.dim_airlines;
+
+CREATE TABLE analytics.dim_airlines AS
 SELECT
     icao,
     iata,
