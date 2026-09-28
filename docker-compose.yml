@@ -73,6 +73,7 @@ services:
 
     command: >
       bash -c "
+      echo '{\"admin\": \"${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in your .env}\"}' > /opt/airflow/simple_auth_manager_passwords.json.generated &&
       airflow db migrate &&
       airflow api-server
       "
@@ -108,7 +109,11 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
 
-    command: airflow scheduler
+    command:
+      bash -c "
+      airflow db migrate &&
+      airflow scheduler
+      "
 
   airflow-dag-processor:
     build:
@@ -135,7 +140,11 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
 
-    command: airflow dag-processor
+    command: 
+      bash -c "
+      airflow db migrate &&
+      airflow dag-processor
+      "
 
   ingestion:
     build: .

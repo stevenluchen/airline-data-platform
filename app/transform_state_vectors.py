@@ -3,10 +3,6 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-# Single source of truth for the snapshot load query. The DDL for
-# analytics.fact_aircraft_positions lives in
-# sql/analytics/fact_aircraft_positions.sql; do not duplicate this
-# INSERT...SELECT there or the two will drift.
 TRANSFORM_QUERY = text("""
     INSERT INTO analytics.fact_aircraft_positions (
         snapshot_id,
