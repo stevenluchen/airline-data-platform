@@ -55,8 +55,7 @@ def fetch_states():
         headers["Authorization"] = f"Bearer {token}"
     else:
         logger.warning(
-            "OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET not set; using anonymous "
-            "access (400 credits/day -- the 10-minute cadence will be rate limited)"
+            "OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET not set; using anonymous access, may be rate limited"
         )
 
     response = requests.get(OPEN_SKY_URL, headers=headers, timeout=30)
@@ -66,6 +65,14 @@ def fetch_states():
         _token_cache["token"] = None
         headers["Authorization"] = f"Bearer {_get_access_token()}"
         response = requests.get(OPEN_SKY_URL, headers=headers, timeout=30)
+
+    logger.info(
+        "OpenSky status=%s remaining=%s retry_after=%s",
+        response.status_code,
+        response.headers.get("X-Rate-Limit-Remaining"),
+        response.headers.get("X-Rate-Limit-Retry-After-Seconds"),
+    )
+
     response.raise_for_status()
     return response.json()
 

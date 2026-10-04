@@ -20,7 +20,7 @@ dag = DAG(
     'airline_data_ingest',
     default_args=default_args,
     description='Ingest and transform OpenSky state vector data',
-    schedule='*/10 * * * *',  # Every 10 minutes
+    schedule='*/5 * * * *',  # Every 5 minutes
     start_date=pendulum.datetime(2026, 9, 12, tz="UTC"),  # Start date in UTC
     catchup=False,
     tags=['airline-data', 'opensky', 'ingestion'],
