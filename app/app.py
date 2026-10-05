@@ -1,4 +1,5 @@
 from datetime import date, datetime, time, timedelta
+import time as time_module
 
 import pandas as pd
 import pydeck as pdk
@@ -156,7 +157,26 @@ if hexes.empty:
     st.stop()
 
 times = sorted(pd.to_datetime(hexes["bucket"]).unique())
-selected_time = st.select_slider("Time (UTC)", options=times, format_func=lambda x: pd.Timestamp(x).strftime("%H:%M"))
+if "time_index" not in st.session_state or st.session_state.time_index >= len(times):
+    st.session_state.time_index = 0
+if "playing" not in st.session_state:
+    st.session_state.playing = False
+
+selected_time = st.select_slider(
+    "Time (UTC)",
+    options=times,
+    value=times[st.session_state.time_index],
+    format_func=lambda value: pd.Timestamp(value).strftime("%H:%M"),
+    help="Scrub through five-minute ingestion buckets.",
+)
+selected_index = times.index(selected_time)
+st.session_state.time_index = selected_index
+
+play_label = "⏸ Pause" if st.session_state.playing else "▶ Play time-lapse"
+if st.button(play_label):
+    st.session_state.playing = not st.session_state.playing
+    st.rerun()
+
 frame = map_frame(hexes, pd.Timestamp(selected_time), selected_cell_width, selected_cell_height)
 max_count = max(1, int(hexes["aircraft_count"].quantile(0.98)))
 if not frame.empty:
@@ -182,6 +202,9 @@ view = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=zoom, min_z
 event = st.pydeck_chart(
     pdk.Deck(layers=[layer], initial_view_state=view, tooltip={"text": "{tooltip}"}),
     width="stretch",
+    # Keep the map instance stable while playback swaps the polygon data.
+    # Include the region so changing regions still applies its new viewport.
+    key=f"density-map-{selected_region}",
     on_select="rerun",
     selection_mode="single-object",
 )
@@ -203,3 +226,8 @@ with left:
 with right:
     st.subheader("Top airlines by airborne count")
     st.bar_chart(airlines.set_index("airline")["aircraft_count"], horizontal=True)
+
+if st.session_state.playing:
+    time_module.sleep(0.5)
+    st.session_state.time_index = (selected_index + 1) % len(times)
+    st.rerun()
