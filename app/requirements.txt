@@ -12,3 +12,5 @@ SQLAlchemy==2.0.51
 tqdm==4.69.1
 typing_extensions==4.16.0
 urllib3==2.7.0
+streamlit
+pydeck

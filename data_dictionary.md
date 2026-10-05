@@ -1,235 +1,133 @@
-# Data Dictionary
+# Airline Data Platform — Data Dictionary
 
-This document summarizes the main tables in the project schema, including their purpose, grain, keys, and source context.
+This document describes the tables and view currently defined by the SQL files and populated by the application code.
 
-## Table Overview
+## `raw.state_vectors`.
 
-| Table | Schema | Purpose | Source |
-| --- | --- | --- | --- |
-| raw.state_vectors | raw | Raw OpenSky aircraft state snapshots | OpenSky Network API |
-| raw.airframes_history | raw | Historical aircraft metadata reference records | OpenAirframes dataset |
-| raw.airlines_ref | raw | Raw airline reference records | avcodes.co.uk |
-| analytics.dim_aircraft | analytics | Deduped aircraft dimension table | OpenAirframes + transformation logic |
-| analytics.dim_aircraft_types | analytics | Aircraft type reference dimension | OpenFlights planes data |
-| analytics.dim_airlines | analytics | Airline reference dimension | avcodes.co.uk + staging transformation |
-| staging.stg_dim_airlines | staging | Staging copy of airline reference data with cleaning/transformation applied | avcodes.co.uk |
-| analytics.fact_aircraft_positions | analytics | Enriched aircraft observation fact table | raw.state_vectors + airline + aircraft dimensions |
+**Purpose:** Raw aircraft state observations returned by the OpenSky `/states/all` API.
 
-## 1. raw.state_vectors
+**Grain:** One row per aircraft (`icao24`) in an ingestion snapshot. The intended natural key is `(snapshot_id, icao24, api_time)`.
 
-### Purpose
-Represents a raw snapshot of aircraft state observations collected from the OpenSky Network API.
+**Physical key:** `id BIGSERIAL PRIMARY KEY`.
 
-### Grain
-One row per aircraft state observation within a single API snapshot.
+**Load behavior:** `app/ingest_state_vectors.py` inserts a new UUID `snapshot_id` and appends rows. There is no database unique constraint on the raw table.
 
-### Primary / Unique Keys
-- Primary key: id (auto-incrementing serial)
-- Unique constraint: TBD
-- Suggested natural key candidate: snapshot_id + icao24 + api_time + last_contact
+Columns include `snapshot_id`, `api_time`, `icao24`, `callsign`, `origin_country`, `time_position`, `last_contact`, `longitude`, `latitude`, `baro_altitude`, `on_ground`, `velocity`, `true_track`, `vertical_rate`, `sensors`, `geo_altitude`, `squawk`, `spi`, `position_source`, `category`, and `ingested_at`.
 
-### Source
-- Source system: OpenSky Network states API
-- Ingestion path: app/ingest_state_vectors.py
+`sensors` is defined as `JSONB` but is not currently populated by ingestion. Timestamps from the API are stored as Unix seconds in `BIGINT` fields; `ingested_at` is a `TIMESTAMP` rounded to the minute by the ingestion script.
 
-### Key columns
-- snapshot_id: identifier for the ingestion batch/snapshot
-- api_time: timestamp from the API response
-- icao24: aircraft ICAO 24-bit address
-- callsign, origin_country: aircraft identification metadata
-- longitude, latitude, velocity, vertical_rate: live state fields
-- ingested_at: load timestamp
+## `raw.airframes_history`
 
----
+**Purpose:** Historical aircraft metadata from the OpenAirframes compressed CSV export.
 
-## 2. raw.airframes_history
+**Grain:** One metadata record per aircraft and source timestamp.
 
-### Purpose
-Stores historical aircraft metadata records imported from the OpenAirframes reference dataset.
+**Physical key:** None declared.
 
-### Grain
-One row per aircraft metadata record at a given historical timestamp.
+**Load behavior:** `app/ingest_airframes.py` appends 50,000-row chunks. Re-running it can duplicate source records unless the target is cleared first.
 
-### Primary / Unique Keys
-- Primary key: TBD
-- Unique constraint: TBD
-- Suggested natural key candidate: icao24 + time
+Columns are `time`, `icao24`, `registration_number`, `type`, `dbFlags`, `ownOp`, `year`, `desc`, and `aircraft_category`, all defined as `TEXT`.
 
-### Source
-- Source system: OpenAirframes historical aircraft metadata export
-- Ingestion path: app/ingest_airframes.py
+## `raw.airlines_ref`
 
-### Key columns
-- time: source timestamp for the record
-- icao24: aircraft identifier
-- registration_number: aircraft registration number
-- type, desc, aircraft_category: aircraft metadata
-- ownOp, year: operator and manufacturing year
+**Purpose:** Raw airline reference data bundled at `app/data/airlines_ref.csv`.
 
----
+**Grain:** One airline reference row.
 
-## 3. analytics.dim_aircraft
+**Physical key:** None declared.
 
-### Purpose
-A deduplicated dimension table for aircraft, intended to provide one row per aircraft identifier.
+**Load behavior:** `app/ingest_airlines.py` loads the CSV with `if_exists="replace"`.
 
-### Grain
-One row per unique aircraft, keyed by icao24.
+Columns are `icao`, `iata`, `name`, and `icao_callsign`, all `TEXT`.
 
-### Primary / Unique Keys
-- Primary key: icao24
-- Unique constraint: effectively one row per icao24
+## `staging.stg_dim_airlines`
 
-### Source
-- Source system: raw.airframes_history
-- Transformation: populated by selecting the latest record per icao24 from the historical airframes data
-- Ingestion path: SQL load logic in sql/staging/stg_dim_aircraft.sql
+**Purpose:** Cleaned and parsed copy of `raw.airlines_ref`.
 
-### Key columns
-- icao24: surrogate/business key for the aircraft
-- registration_number: registration identifier
-- type, desc: aircraft type and description
-- operator, year, aircraft_category: descriptive attributes
-- last_updated: timestamp of most recent source record used
+**Grain:** One row per source airline record; no key is declared.
 
----
+**Load behavior:** Dropped and recreated by `sql/staging/stg_dim_airlines.sql`.
 
-## 4. analytics.dim_aircraft_types
+The original columns are retained. `iata` is truncated to two characters; `name` is cleaned; and the transformation adds `airline_name` and `airline_country`, derived by splitting `name` on ` - `.
 
-### Purpose
-Reference table for aircraft types used in downstream analytics and joins.
+## `analytics.dim_airlines`
 
-### Grain
-One row per aircraft type reference entry.
+**Purpose:** Analytics-ready airline lookup used to enrich callsigns.
 
-### Primary / Unique Keys
-- Primary key: TBD
-- Unique constraint: TBD
+**Grain:** One row per retained staging airline record.
 
-### Source
-- Source system: OpenFlights planes data
-- Ingestion path: app/ingest_aircraft_types.py
+**Physical key:** None declared, despite `icao` functioning as the intended business key.
 
-### Key columns
-- name: aircraft type name
-- iata: IATA code
-- icao: ICAO code
+**Load behavior:** Dropped and recreated from staging. Rows whose `airline_name` starts with `Blocked` are excluded.
 
----
+Columns are `icao`, `iata`, `airline_name`, `airline_country`, and `callsign` (sourced from `icao_callsign`). The fact transformation joins this table using the first three characters of the normalized callsign against `icao`.
 
-## 5. raw.airlines_ref
+## `analytics.dim_aircraft`
 
-### Purpose
-Stores the raw airline reference records imported from avcodes.co.uk.
+**Purpose:** Latest known aircraft metadata for enrichment.
 
-### Grain
-One row per airline reference record.
+**Grain:** One row per valid six-character `icao24`.
 
-### Primary / Unique Keys
-- Primary key: TBD
-- Unique constraint: TBD
-- Suggested natural key candidate: icao
+**Physical key:** None declared; `icao24` is the intended business key.
 
-### Source
-- Source system: avcodes.co.uk airline code reference data
-- Ingestion path: TBD
+**Load behavior:** Dropped and rebuilt from `raw.airframes_history`. A window function selects the record with the greatest `time` per `icao24`.
 
-### Key columns
-- icao: airline ICAO code
-- iata: airline IATA code
-- name: airline name as provided by the source
-- icao_callsign: ICAO-style callsign value
+Columns are `icao24`, `registration_number`, `type`, `desc`, `operator`, `year`, `aircraft_category`, and `last_updated`. `year` is converted to null when the source value is `'0'`.
 
----
+## `analytics.dim_aircraft_types`
 
-## 6. staging.stg_dim_airlines
+**Purpose:** Aircraft type lookup from OpenFlights `planes.dat`.
 
-### Purpose
-A staging table that mirrors raw.airlines_ref and applies basic cleaning and parsing so the analytics table is easier to consume.
+**Grain:** One row per source aircraft type record.
 
-### Grain
-One row per airline reference record.
+**Physical key:** None declared.
 
-### Primary / Unique Keys
-- Primary key: TBD
-- Unique constraint: TBD
+**Load behavior:** `app/ingest_aircraft_types.py` replaces the table on each run.
 
-### Source
-- Source system: raw.airlines_ref
-- Transformation logic: trims IATA values to two characters, removes formatting from names, splits names into airline_name and airline_country, and creates the analytics-ready columns
+Columns are `name`, `iata`, and `icao`, all `TEXT`. This table is currently not joined by the state-vector transformation; aircraft metadata is sourced from `dim_aircraft` instead.
 
-### Key columns
-- icao, iata, name, icao_callsign: raw staging values
-- airline_name: extracted airline name
-- airline_country: extracted country from the source name
+## `analytics.dim_airports`
 
----
+**Purpose:** Airport reference dimension from the mwgg/Airports JSON dataset.
 
-## 7. analytics.dim_airlines
+**Grain:** One row per airport ICAO code.
 
-### Purpose
-A cleaned airline dimension table for downstream analytics and joins.
+**Physical key:** `airport_icao VARCHAR(4) PRIMARY KEY`.
 
-### Grain
-One row per airline reference record.
+**Load behavior:** `app/ingest_airports.py` performs an insert/upsert on `airport_icao`.
 
-### Primary / Unique Keys
-- Primary key: TBD
-- Unique constraint: TBD
+Columns include ICAO/IATA codes, airport name, city, country, elevation, latitude, longitude, and timezone. Numeric geographic fields are `DOUBLE PRECISION`; elevation is `INTEGER`.
 
-### Source
-- Source system: staging.stg_dim_airlines
-- Transformation logic: built from the staging table and excludes entries where airline_name starts with 'Blocked'
+## `analytics.fact_aircraft_positions`
 
-### Key columns
-- icao: airline ICAO code
-- iata: trimmed IATA code
-- airline_name: cleaned airline name
-- airline_country: cleaned country name
-- callsign: ICAO callsign value
+**Purpose:** Enriched aircraft observations for analytics and dashboards.
 
----
+**Grain:** One row per aircraft observation per API snapshot.
 
-## 8. analytics.fact_aircraft_positions
+**Physical key:** `aircraft_position_id BIGSERIAL PRIMARY KEY`.
 
-### Purpose
-A denormalized fact table that enriches each raw OpenSky position observation with aircraft and airline metadata for analytics and dashboard use.
+**Natural uniqueness:** Unique index on `(snapshot_id, icao24, api_time)`.
 
-### Grain
-One row per aircraft observation at a given snapshot time.
+**Load behavior:** `app/transform_state_vectors.py` inserts rows from one raw snapshot, joins `dim_airlines` and `dim_aircraft`, and uses `ON CONFLICT DO NOTHING` for idempotent reprocessing.
 
-### Primary / Unique Keys
-- Primary key: aircraft_position_id (surrogate key)
-- Recommended natural key: snapshot_id + icao24 + api_time
-- Unique index: recommended on (snapshot_id, icao24, api_time)
+The table contains snapshot/timestamp fields, aircraft and airline enrichment fields, position and flight-state measures, operational metadata, and `ingested_at`. `observed_at` is derived from `api_time` with `TO_TIMESTAMP`.
 
-### Source
-- Source systems: raw.state_vectors, analytics.dim_aircraft, analytics.dim_airlines
-- Transformation logic: joins the raw state vectors to airline and aircraft dimension tables and retains the enriched payload for downstream analysis
+Airline enrichment can be null when a callsign does not match `dim_airlines`; aircraft enrichment can be null when `icao24` is absent from `dim_aircraft`.
 
-### Key columns
-- aircraft_position_id: surrogate key for the fact row
-- snapshot_id: OpenSky snapshot identifier
-- api_time / observed_at: observation timestamp
-- icao24: aircraft identifier
-- callsign, origin_country: flight and origin metadata
-- airline_icao, airline_iata, airline_name, airline_country: airline enrichment fields
-- aircraft_registration_number, aircraft_type, aircraft_type_description, aircraft_category, aircraft_registered_year: aircraft enrichment fields
-- longitude, latitude, baro_altitude, geo_altitude, on_ground, velocity, true_track, vertical_rate: flight-state metrics
-- squawk, spi, position_source, category: operational metadata
-- ingested_at: row load timestamp
+## `analytics.vw_aircraft_positions_cleaned`
 
----
+**Purpose:** Consumer-facing view over the fact table with callsign quality labeling.
 
-## 9. staging logic note
+For each aircraft, the view identifies null-callsign runs bounded by matching non-null callsigns and fills those runs with the matching callsign.
 
-### stg_dim_aircraft
-This SQL script is not a physical table definition; it is a transformation step that loads the analytics.dim_aircraft dimension from raw.airframes_history.
+`callsign_source` is `observed` for an original callsign, `bounded_imputation` for a filled bounded null run, `unavailable` when the aircraft has no observed callsign anywhere in the fact table, and `NULL` for other unclassified null callsigns.
 
-### Grain / Keys
-- Grain: one row per latest record for each icao24
-- Primary key: inherited from analytics.dim_aircraft (icao24)
-- Source: raw.airframes_history
+The view otherwise exposes the fact-table attributes and orders results by `aircraft_position_id`.
 
-### fact_aircraft_positions
-This table is a materialized analytics fact table intended to be refreshed after the base ingest jobs run. It is designed to support dashboards, operational queries, and enriched flight-state analysis.
+## Operational gaps reflected by the current implementation
+
+- No schema bootstrap or database migration runner is included.
+- No primary or unique keys are declared on the airline, aircraft, aircraft-type, or raw history dimensions beyond the keys noted above.
+- Reference-data refreshes are manual and are not part of the Airflow DAG.
+- The raw `sensors` field is defined but not loaded.
+- No automated row-count, null-rate, freshness, or referential-integrity checks are defined.

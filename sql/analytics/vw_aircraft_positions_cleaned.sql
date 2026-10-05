@@ -90,4 +90,4 @@ LEFT JOIN bounded_runs b
     AND b.callsign_group = o.callsign_group
 JOIN sequence_status s
     ON s.icao24 = o.icao24
-order by 1;
+;
