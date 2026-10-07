@@ -11,14 +11,5 @@ SELECT
     case when "year" = '0' then null else "year" end,
     aircraft_category,
     time::TIMESTAMP AS last_updated
-FROM (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (
-            PARTITION BY icao24
-            ORDER BY time DESC
-        ) AS rn
-    FROM raw.airframes_history
-    WHERE length(icao24) = 6
-) 
-WHERE rn = 1;
+FROM raw.airframes_history
+WHERE length(icao24) = 6;

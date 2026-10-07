@@ -18,13 +18,13 @@ Columns include `snapshot_id`, `api_time`, `icao24`, `callsign`, `origin_country
 
 ## `raw.airframes_history`
 
-**Purpose:** Historical aircraft metadata from the OpenAirframes compressed CSV export.
+**Purpose:** Current aircraft metadata distilled from the OpenAirframes historical CSV export.
 
-**Grain:** One metadata record per aircraft and source timestamp.
+**Grain:** One latest metadata record per valid six-character `icao24`.
 
 **Physical key:** None declared.
 
-**Load behavior:** `app/ingest_airframes.py` appends 50,000-row chunks. Re-running it can duplicate source records unless the target is cleared first.
+**Load behavior:** `app/ingest_airframes.py` reads the historical source in chunks, retains the newest record per `icao24`, loads a staging table, and swaps it into place after a successful load. Re-running the script replaces the snapshot rather than appending duplicates.
 
 Columns are `time`, `icao24`, `registration_number`, `type`, `dbFlags`, `ownOp`, `year`, `desc`, and `aircraft_category`, all defined as `TEXT`.
 
@@ -64,13 +64,13 @@ Columns are `icao`, `iata`, `airline_name`, `airline_country`, and `callsign` (s
 
 ## `analytics.dim_aircraft`
 
-**Purpose:** Latest known aircraft metadata for enrichment.
+**Purpose:** Aircraft metadata for enrichment.
 
 **Grain:** One row per valid six-character `icao24`.
 
 **Physical key:** None declared; `icao24` is the intended business key.
 
-**Load behavior:** Dropped and rebuilt from `raw.airframes_history`. A window function selects the record with the greatest `time` per `icao24`.
+**Load behavior:** Dropped and rebuilt from the already-deduplicated `raw.airframes_history` snapshot.
 
 Columns are `icao24`, `registration_number`, `type`, `desc`, `operator`, `year`, `aircraft_category`, and `last_updated`. `year` is converted to null when the source value is `'0'`.
 
