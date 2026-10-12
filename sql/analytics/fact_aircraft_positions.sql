@@ -1,9 +1,7 @@
 -- sql/analytics/fact_aircraft_positions.sql
 -- DDL for the enriched aircraft positions fact table.
 
-DROP TABLE IF EXISTS analytics.fact_aircraft_positions;
-
-CREATE TABLE analytics.fact_aircraft_positions (
+CREATE TABLE IF NOT EXISTS analytics.fact_aircraft_positions (
     aircraft_position_id BIGSERIAL PRIMARY KEY,
     snapshot_id UUID NOT NULL,
     api_time BIGINT NOT NULL,
