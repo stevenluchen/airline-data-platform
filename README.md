@@ -189,7 +189,6 @@ docker compose up -d airflow airflow-scheduler airflow-dag-processor
 │   └── analytics/                      # Dimensions, fact, and view SQL
 ├── data_dictionary.md                  # Table grains, columns, keys, and states
 ├── docker-compose.yml                  # PostgreSQL and Airflow services
-├── Dockerfile                          # Standalone ingestion image
 └── README.md
 ```
 
