@@ -3,6 +3,7 @@ from pathlib import Path
 from sqlalchemy import text
 from db import get_engine
 import requests
+import logging
 
 AIRPORTS_URL = "https://raw.githubusercontent.com/mwgg/Airports/master/airports.json"
 
@@ -65,7 +66,7 @@ def ingest_airports():
     with engine.begin() as conn:
         conn.execute(insert_sql, rows)
 
-    print(f"Loaded {len(rows):,} airports into analytics.dim_airports")
+    logging.info(f"Loaded {len(rows):,} airports into analytics.dim_airports")
 
 
 if __name__ == "__main__":
