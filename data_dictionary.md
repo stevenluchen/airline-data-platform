@@ -1,8 +1,8 @@
 # Airline Data Platform — Data Dictionary
 
-This document describes the tables and view currently defined by the SQL files and populated by the application code.
+This document describes the tables, view, and dashboard-facing query behavior currently defined by the SQL files and application code.
 
-## `raw.state_vectors`.
+## `raw.state_vectors`
 
 **Purpose:** Raw aircraft state observations returned by the OpenSky `/states/all` API.
 
@@ -49,6 +49,16 @@ Columns are `icao`, `iata`, `name`, and `icao_callsign`, all `TEXT`.
 **Load behavior:** Dropped and recreated by `sql/staging/stg_dim_airlines.sql`.
 
 The original columns are retained. `iata` is truncated to two characters; `name` is cleaned; and the transformation adds `airline_name` and `airline_country`, derived by splitting `name` on ` - `.
+
+## `staging.stg_airframes_history`
+
+**Purpose:** Temporary latest-aircraft snapshot used during the OpenAirframes refresh.
+
+**Grain:** One candidate row per valid six-character `icao24`.
+
+**Physical key:** None declared.
+
+**Load behavior:** Dropped and recreated from `sql/staging/stg_airframes_history.sql`, populated by `app/ingest_airframes.py`, validated for non-empty unique `icao24` values, then promoted to `raw.airframes_history`. It is not intended to remain as a long-term historical table.
 
 ## `analytics.dim_airlines`
 
@@ -124,10 +134,26 @@ For each aircraft, the view identifies null-callsign runs bounded by matching no
 
 The view otherwise exposes the fact-table attributes and orders results by `aircraft_position_id`.
 
+## Streamlit dashboard query layer
+
+The dashboard is implemented in `app/app.py` and does not create additional database tables or views.
+
+**Primary source:** `analytics.fact_aircraft_positions` is queried directly for dashboard performance. The dashboard does not currently use `analytics.vw_aircraft_positions_cleaned`.
+
+**Time grain:** `ingested_at`, which represents the approximately five-minute ingestion bucket. The selected date is filtered using `ingested_at` and the map slider advances through available five-minute buckets.
+
+**Map aggregate:** Airborne rows (`on_ground IS FALSE`) are filtered to the selected geographic region and grouped into latitude/longitude grid cells. The grid width changes by region to provide finer detail in compact areas such as Japan and coarser aggregation over large areas such as North America and Global.
+
+**Supporting aggregates:** The dashboard also queries the fact table for distinct airborne aircraft by ingestion bucket and top airlines by distinct airborne aircraft over the selected day and region.
+
+**Hexbin detail query:** Clicking a map cell queries all airborne fact rows matching the selected `ingested_at` bucket and cell coordinates. The result is displayed as an aircraft detail table containing identifiers, callsign and airline fields, aircraft metadata, position, altitude, velocity, and track.
+
+**Caching:** Dashboard aggregate queries are cached for five minutes. Changing the date or region creates a new scoped query.
+
 ## Operational gaps reflected by the current implementation
 
-- No schema bootstrap or database migration runner is included.
+- `scripts/init_database.py` initializes schemas and base tables; it is not a full versioned migration system.
 - No primary or unique keys are declared on the airline, aircraft, aircraft-type, or raw history dimensions beyond the keys noted above.
-- Reference-data refreshes are manual and are not part of the Airflow DAG.
+- Airline, aircraft-type, and airport reference refreshes remain manual; the OpenAirframes aircraft refresh is scheduled daily by Airflow at 08:00 UTC.
 - The raw `sensors` field is defined but not loaded.
 - No automated row-count, null-rate, freshness, or referential-integrity checks are defined.
