@@ -61,7 +61,19 @@ until docker compose exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "
 
 If your shell has not loaded `.env`, use the values from `.env` directly in the command or wait a few seconds and retry the next step.
 
-### 3. Initialize the database
+### 3. Install Python dependencies
+
+Create and activate a local virtual environment, then install the dependencies used by the database scripts and dashboard:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r app/requirements.txt
+```
+
+Keep the virtual environment activated for the remaining local commands.
+
+### 4. Initialize the database
 
 ```bash
 python scripts/init_database.py
@@ -69,7 +81,7 @@ python scripts/init_database.py
 
 This creates the `raw`, `staging`, and `analytics` schemas and the base tables, fact table, indexes, and cleaned-position view. It is safe to rerun and does not drop existing base tables.
 
-### 4. Load reference data
+### 5. Load reference data
 
 Run these once for a fresh database:
 
@@ -83,17 +95,7 @@ python scripts/rebuild_dimensions.py
 
 The OpenAirframes refresh downloads a large historical release but stores only the newest record per aircraft in `raw.airframes_history`. It stages the result, validates it, promotes it atomically, and rebuilds `analytics.dim_aircraft`.
 
-### 5. Start the dashboard
-
-Create a local virtual environment if needed:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r app/requirements.txt
-```
-
-Then run:
+### 6. Start the dashboard
 
 ```bash
 streamlit run app/app.py

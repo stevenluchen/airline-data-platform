@@ -1,8 +1,12 @@
 from pathlib import Path
+import sys
 from sqlalchemy import text
-from app.db import get_engine
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.db import get_engine
 
 SQL_FILES = [
     "sql/raw/state_vectors.sql",
@@ -24,7 +28,9 @@ def main():
         for relative_path in SQL_FILES:
             path = ROOT / relative_path
             print(f"Applying {relative_path}")
-            conn.exec_driver_sql(path.read_text())
+            conn.exec_driver_sql(
+                path.read_text(), execution_options={"no_parameters": True}
+            )
 
     print("Database initialization complete.")
 

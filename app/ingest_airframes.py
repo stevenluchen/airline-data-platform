@@ -164,7 +164,9 @@ def load_and_validate_staging(url: str) -> dict:
     ddl_started = time.monotonic()
     logging.info(f"[airframes] Creating staging table from {staging_ddl_path()}", extra={"flush": True})
     with engine.begin() as conn:
-        conn.exec_driver_sql(staging_ddl_path().read_text())
+        conn.exec_driver_sql(
+            staging_ddl_path().read_text(), execution_options={"no_parameters": True}
+        )
     logging.info(
         f"[airframes] Staging table created in {time.monotonic() - ddl_started:.1f}s",
         extra={"flush": True},
@@ -244,7 +246,9 @@ def rebuild_dim_aircraft():
     sql_path = dim_aircraft_sql_path()
     logging.info(f"[airframes] Rebuilding analytics.dim_aircraft from {sql_path}", extra={"flush": True})
     with engine.begin() as conn:
-        conn.exec_driver_sql(sql_path.read_text())
+        conn.exec_driver_sql(
+            sql_path.read_text(), execution_options={"no_parameters": True}
+        )
 
     logging.info(
         f"[airframes] Aircraft dimension rebuild complete in "
